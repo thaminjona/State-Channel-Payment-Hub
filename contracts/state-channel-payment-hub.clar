@@ -8,6 +8,8 @@
 (define-constant ERR_CHALLENGE_PERIOD_EXPIRED (err u107))
 (define-constant ERR_INVALID_PARTICIPANT (err u108))
 (define-constant ERR_CHANNEL_ALREADY_EXISTS (err u109))
+(define-constant ERR_CHANNEL_PAUSED (err u110))
+(define-constant ERR_CHANNEL_NOT_PAUSED (err u111))
 
 (define-constant CHALLENGE_PERIOD u144)
 
@@ -23,7 +25,9 @@
         nonce: uint,
         is-closed: bool,
         challenge-expiry: (optional uint),
-        closer: (optional principal)
+        closer: (optional principal),
+        is-paused: bool,
+        paused-by: (optional principal)
     }
 )
 
@@ -57,7 +61,9 @@
                 nonce: u0,
                 is-closed: false,
                 challenge-expiry: none,
-                closer: none
+                closer: none,
+                is-paused: false,
+                paused-by: none
             }
         )
         
@@ -76,7 +82,8 @@
         )
         (asserts! (> amount u0) ERR_INSUFFICIENT_BALANCE)
         (asserts! (is-eq (get is-closed channel) false) ERR_CHANNEL_CLOSED)
-        (asserts! (or (is-eq sender (get participant-a channel)) 
+        (asserts! (is-eq (get is-paused channel) false) ERR_CHANNEL_PAUSED)
+        (asserts! (or (is-eq sender (get participant-a channel))
                      (is-eq sender (get participant-b channel))) ERR_UNAUTHORIZED)
         
         (try! (stx-transfer? amount sender (as-contract tx-sender)))
@@ -107,6 +114,7 @@
             (sender tx-sender)
         )
         (asserts! (is-eq (get is-closed channel) false) ERR_CHANNEL_CLOSED)
+        (asserts! (is-eq (get is-paused channel) false) ERR_CHANNEL_PAUSED)
         (asserts! (> new-nonce (get nonce channel)) ERR_INVALID_NONCE)
         (asserts! (is-eq (+ new-balance-a new-balance-b) total-balance) ERR_INSUFFICIENT_BALANCE)
         (asserts! (or (is-eq sender (get participant-a channel)) 
@@ -222,6 +230,48 @@
     )
 )
 
+(define-public (pause-channel (channel-id uint))
+    (let
+        (
+            (channel (unwrap! (map-get? channels channel-id) ERR_CHANNEL_NOT_FOUND))
+            (sender tx-sender)
+        )
+        (asserts! (is-eq (get is-closed channel) false) ERR_CHANNEL_CLOSED)
+        (asserts! (is-eq (get is-paused channel) false) ERR_CHANNEL_PAUSED)
+        (asserts! (or (is-eq sender (get participant-a channel))
+                     (is-eq sender (get participant-b channel))) ERR_UNAUTHORIZED)
+
+        (map-set channels channel-id
+            (merge channel {
+                is-paused: true,
+                paused-by: (some sender)
+            })
+        )
+        (ok true)
+    )
+)
+
+(define-public (resume-channel (channel-id uint))
+    (let
+        (
+            (channel (unwrap! (map-get? channels channel-id) ERR_CHANNEL_NOT_FOUND))
+            (sender tx-sender)
+        )
+        (asserts! (is-eq (get is-closed channel) false) ERR_CHANNEL_CLOSED)
+        (asserts! (is-eq (get is-paused channel) true) ERR_CHANNEL_NOT_PAUSED)
+        (asserts! (or (is-eq sender (get participant-a channel))
+                     (is-eq sender (get participant-b channel))) ERR_UNAUTHORIZED)
+
+        (map-set channels channel-id
+            (merge channel {
+                is-paused: false,
+                paused-by: none
+            })
+        )
+        (ok true)
+    )
+)
+
 (define-read-only (get-channel (channel-id uint))
     (map-get? channels channel-id)
 )
@@ -252,6 +302,16 @@
                 expiry (if (> expiry burn-block-height) (some (- expiry burn-block-height)) (some u0))
                 none
             )
+        })
+        none
+    )
+)
+
+(define-read-only (get-pause-status (channel-id uint))
+    (match (map-get? channels channel-id)
+        channel (some {
+            is-paused: (get is-paused channel),
+            paused-by: (get paused-by channel)
         })
         none
     )
