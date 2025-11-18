@@ -11,6 +11,9 @@
 (define-constant ERR_CHANNEL_PAUSED (err u110))
 (define-constant ERR_CHANNEL_NOT_PAUSED (err u111))
 
+(define-constant ERR_PENDING_WITHDRAWAL_NOT_FOUND (err u112))
+(define-constant ERR_NOT_COUNTERPARTY (err u113))
+
 (define-constant CHALLENGE_PERIOD u144)
 
 (define-data-var next-channel-id uint u1)
@@ -315,4 +318,76 @@
         })
         none
     )
+)
+
+(define-public (propose-withdrawal (channel-id uint) (amount uint))
+    (let
+        (
+            (channel (unwrap! (map-get? channels channel-id) ERR_CHANNEL_NOT_FOUND))
+            (sender tx-sender)
+            (participant-a (get participant-a channel))
+            (participant-b (get participant-b channel))
+            (balance-a (get balance-a channel))
+            (balance-b (get balance-b channel))
+        )
+        (asserts! (is-eq (get is-closed channel) false) ERR_CHANNEL_CLOSED)
+        (asserts! (is-eq (get is-paused channel) false) ERR_CHANNEL_PAUSED)
+        (asserts! (> amount u0) ERR_INSUFFICIENT_BALANCE)
+        (asserts! (or (is-eq sender participant-a) (is-eq sender participant-b)) ERR_UNAUTHORIZED)
+        (asserts!
+            (if (is-eq sender participant-a)
+                (>= balance-a amount)
+                (>= balance-b amount)
+            )
+            ERR_INSUFFICIENT_BALANCE
+        )
+        (map-set pending-withdrawals { channel-id: channel-id, participant: sender } amount)
+        (ok true)
+    )
+)
+
+(define-public (confirm-withdrawal (channel-id uint) (participant principal))
+    (let
+        (
+            (channel (unwrap! (map-get? channels channel-id) ERR_CHANNEL_NOT_FOUND))
+            (sender tx-sender)
+            (participant-a (get participant-a channel))
+            (participant-b (get participant-b channel))
+            (pending (map-get? pending-withdrawals { channel-id: channel-id, participant: participant }))
+        )
+        (asserts! (is-eq (get is-closed channel) false) ERR_CHANNEL_CLOSED)
+        (asserts! (is-eq (get is-paused channel) false) ERR_CHANNEL_PAUSED)
+        (asserts! (or (is-eq sender participant-a) (is-eq sender participant-b)) ERR_UNAUTHORIZED)
+        (asserts! (or (is-eq participant participant-a) (is-eq participant participant-b)) ERR_INVALID_PARTICIPANT)
+        (asserts! (is-some pending) ERR_PENDING_WITHDRAWAL_NOT_FOUND)
+        (asserts! (not (is-eq sender participant)) ERR_NOT_COUNTERPARTY)
+        (let
+            (
+                (amount (unwrap-panic pending))
+                (balance-a (get balance-a channel))
+                (balance-b (get balance-b channel))
+                (updated-channel
+                    (if (is-eq participant participant-a)
+                        (merge channel { balance-a: (- balance-a amount) })
+                        (merge channel { balance-b: (- balance-b amount) })
+                    )
+                )
+            )
+            (asserts!
+                (if (is-eq participant participant-a)
+                    (>= balance-a amount)
+                    (>= balance-b amount)
+                )
+                ERR_INSUFFICIENT_BALANCE
+            )
+            (try! (as-contract (stx-transfer? amount tx-sender participant)))
+            (map-set channels channel-id updated-channel)
+            (map-delete pending-withdrawals { channel-id: channel-id, participant: participant })
+            (ok true)
+        )
+    )
+)
+
+(define-read-only (get-pending-withdrawal (channel-id uint) (participant principal))
+    (map-get? pending-withdrawals { channel-id: channel-id, participant: participant })
 )
