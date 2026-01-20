@@ -44,6 +44,16 @@
     uint
 )
 
+(define-map user-channel-count
+    principal
+    uint
+)
+
+(define-map user-channel-index
+    { user: principal, index: uint }
+    uint
+)
+
 (define-public (open-channel (participant-b principal) (initial-deposit uint))
     (let
         (
@@ -72,6 +82,16 @@
         
         (map-set channel-deposits { channel-id: channel-id, participant: sender } initial-deposit)
         (var-set next-channel-id (+ channel-id u1))
+        (let
+            (
+                (count-a (default-to u0 (map-get? user-channel-count sender)))
+                (count-b (default-to u0 (map-get? user-channel-count participant-b)))
+            )
+            (map-set user-channel-index { user: sender, index: count-a } channel-id)
+            (map-set user-channel-index { user: participant-b, index: count-b } channel-id)
+            (map-set user-channel-count sender (+ count-a u1))
+            (map-set user-channel-count participant-b (+ count-b u1))
+        )
         
         (ok channel-id)
     )
@@ -390,4 +410,12 @@
 
 (define-read-only (get-pending-withdrawal (channel-id uint) (participant principal))
     (map-get? pending-withdrawals { channel-id: channel-id, participant: participant })
+)
+
+(define-read-only (get-user-channel-count (user principal))
+    (default-to u0 (map-get? user-channel-count user))
+)
+
+(define-read-only (get-user-channel-at (user principal) (index uint))
+    (map-get? user-channel-index { user: user, index: index })
 )
