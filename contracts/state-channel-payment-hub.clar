@@ -412,6 +412,29 @@
     (map-get? pending-withdrawals { channel-id: channel-id, participant: participant })
 )
 
+(define-public (batch-open-channels (entries (list 10 { partner: principal, initial-deposit: uint })))
+    (let
+        (
+            (results (map open-channel-from-entry entries))
+        )
+        (fold check-batch-result results (ok true))
+    )
+)
+
+(define-private (open-channel-from-entry (entry { partner: principal, initial-deposit: uint }))
+    (open-channel (get partner entry) (get initial-deposit entry))
+)
+
+(define-private (check-batch-result (result (response uint uint)) (prior (response bool uint)))
+    (match prior
+        ok-value (match result
+            ok-res (ok true)
+            err-res (err err-res)
+        )
+        err-value (err err-value)
+    )
+)
+
 (define-read-only (get-user-channel-count (user principal))
     (default-to u0 (map-get? user-channel-count user))
 )
