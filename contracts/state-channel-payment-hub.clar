@@ -340,6 +340,38 @@
     )
 )
 
+(define-read-only (get-channel-summary (channel-id uint))
+    (match (map-get? channels channel-id)
+        channel
+            (let
+                (
+                    (participant-a (get participant-a channel))
+                    (participant-b (get participant-b channel))
+                    (deposit-a (map-get? channel-deposits { channel-id: channel-id, participant: participant-a }))
+                    (deposit-b (map-get? channel-deposits { channel-id: channel-id, participant: participant-b }))
+                    (pending-a (map-get? pending-withdrawals { channel-id: channel-id, participant: participant-a }))
+                    (pending-b (map-get? pending-withdrawals { channel-id: channel-id, participant: participant-b }))
+                )
+                (some {
+                    participant-a: participant-a,
+                    participant-b: participant-b,
+                    balance-a: (get balance-a channel),
+                    balance-b: (get balance-b channel),
+                    nonce: (get nonce channel),
+                    is-closed: (get is-closed channel),
+                    is-paused: (get is-paused channel),
+                    challenge-expiry: (get challenge-expiry channel),
+                    closer: (get closer channel),
+                    deposit-a: (default-to u0 deposit-a),
+                    deposit-b: (default-to u0 deposit-b),
+                    pending-withdrawal-a: (default-to u0 pending-a),
+                    pending-withdrawal-b: (default-to u0 pending-b)
+                })
+            )
+        none
+    )
+)
+
 (define-public (propose-withdrawal (channel-id uint) (amount uint))
     (let
         (
